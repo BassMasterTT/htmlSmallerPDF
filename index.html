@@ -12,6 +12,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.min.js"></script>
     <!-- jsPDF for PDF creation -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.3.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/modernizr/2.8.3/modernizr.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -41,6 +42,32 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            flex-direction: row;  /* Add this */
+        }
+        
+        @media (max-width: 768px) {
+            .header-content {
+                flex-direction: column;
+                gap: 20px;  /* Add spacing between elements */
+            }
+            
+            .header-text {
+                order: -1;  /* Make sure text stays above */
+                margin-bottom: 20px;  /* Add space below button */
+            }
+            
+            .upload-container {
+                margin: 40px 0 0 0;  /* Increase top margin */
+                width: 100%;
+                position: relative;
+                z-index: 1;  /* Ensure it stays below button */
+            }
+            
+            .get-started-btn {
+                margin-top: 15px;
+                position: relative;
+                z-index: 2;  /* Keep button above other elements */
+            }
         }
         
         .header-text h1 {
@@ -463,6 +490,13 @@
 
             const formatSelect = document.getElementById('imageFormat');
             const qualityDiv = document.getElementById('qualitySetting');
+
+            // Add WebP support check
+            if (!Modernizr.webp) {
+                formatSelect.options[2].disabled = true;
+                formatSelect.options[2].textContent += ' (not supported)';
+            }
+
             formatSelect.addEventListener('change', () => {
                 qualityDiv.style.display = formatSelect.value === 'png' ? 'none' : 'block';
             });
@@ -490,7 +524,7 @@
                 compressedBlob = await compressPdf(file, level);
             } else {
                 const format = document.getElementById('imageFormat').value;
-                const quality = parseInt(document.getElementById('imageQuality').value);
+                const quality = Math.min(Math.max(parseInt(document.getElementById('imageQuality').value), 1), 100);
                 compressedBlob = await compressImage(file, format, quality);
             }
 
@@ -545,7 +579,7 @@
                             'png': 'image/png',
                             'webp': 'image/webp'
                         }[format];
-                        const qualityParam = format === 'png' ? undefined : quality / 100;
+                        const qualityParam = format === 'png' ? undefined : Math.min(Math.max(quality / 100, 0.1), 1.0);
 
                         canvas.toBlob((blob) => resolve(blob), mimeType, qualityParam);
                     };
@@ -569,7 +603,7 @@
             const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
             const numPages = pdfDoc.numPages;
 
-            const firstPage = await pdfDoc.getPage(1);
+            const firstPage = await pdfjsLib.getPage(1);
             const firstViewport = firstPage.getViewport({ scale: 1 });
             const newPdf = new jsPDF({
                 orientation: firstViewport.width > firstViewport.height ? 'landscape' : 'portrait',
@@ -580,22 +614,18 @@
             for (let pageNum = 1; pageNum <= numPages; pageNum++) {
                 const page = await pdfDoc.getPage(pageNum);
                 const viewport = page.getViewport({ scale: 1 });
-                const renderViewport = page.getViewport({ scale: 2 });
-                const canvas = document.createElement('canvas');
-                canvas.width = renderViewport.width;
-                canvas.height = renderViewport.height;
-                const ctx = canvas.getContext('2d');
-                await page.render({ canvasContext: ctx, viewport: renderViewport }).promise;
-
-                const imgData = canvas.toDataURL('image/jpeg', quality);
-
+                // Change rendering scale from 2 to 1.5
+                const renderViewport = page.getViewport({ scale: 1.5 });
+                // Add these PDF compression options
+                newPdf.addImage(imgData, 'JPEG', 0, 0, viewport.width, viewport.height, undefined, 'FAST');
+                // Modify addPage call to include compression
                 if (pageNum > 1) {
                     newPdf.addPage(
                         [viewport.width, viewport.height],
-                        viewport.width > viewport.height ? 'landscape' : 'portrait'
+                        viewport.width > viewport.height ? 'landscape' : 'portrait',
+                        { compression: 'FAST' }
                     );
                 }
-                newPdf.addImage(imgData, 'JPEG', 0, 0, viewport.width, viewport.height);
             }
 
             return newPdf.output('blob');
